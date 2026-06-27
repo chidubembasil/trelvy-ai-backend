@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.138.1",
+    "fastapi[standard]>=0.138.1",
     "fastapi-mail>=1.6.5",
     "openai>=2.44.0",
     "passlib[bcrypt]>=1.7.4",
