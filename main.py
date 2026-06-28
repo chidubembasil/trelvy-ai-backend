@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from database import db
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from routers import agent, userAuth
+from router import agent, userAuth
 
 
 

@@ -1,10 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from starlette import status
 import uuid
-from openai_codex import Codex, Sandbox
 from database import db
 from schema import MultiAgentDetails
-from auth import get_current_user
+from runtime.auth import get_current_user
 
 router = APIRouter(
     prefix="/multi-agents",
@@ -12,12 +11,12 @@ router = APIRouter(
 )
 
 #codex code
-async def codex_code(details):
-        with Codex() as codex:
-            thread = codex.thread_start(sandbox=Sandbox.workspace_write)
-            # Use the Codex API to generate code based on the prompt and output
-            generated_code = thread.run(details.prompt)
-            return generated_code
+# async def codex_code(details):
+#         with Codex() as codex:
+#             thread = codex.thread_start(sandbox=Sandbox.workspace_write)
+#             # Use the Codex API to generate code based on the prompt and output
+#             generated_code = thread.run(details.prompt)
+#             return generated_code
 
 # Create a new multi-agent for the logged in user
 @router.post("/", response_model=MultiAgentDetails, status_code=status.HTTP_201_CREATED)

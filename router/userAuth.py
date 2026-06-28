@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from starlette import status
 from database import db
-from scheme import User, UserUpdate, LoginDetails, VerifyOTPDetails
-from auth import hash_password, verify_password, create_access_token, get_current_user
-from email_service import generate_otp, send_otp_email
+from schema import User, UserUpdate, LoginDetails, VerifyOTPDetails
+from runtime.auth import hash_password, verify_password, create_access_token, get_current_user
+from runtime.email import generate_otp, send_otp_email
 from datetime import datetime, timedelta
 
 router = APIRouter(
