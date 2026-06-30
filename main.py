@@ -10,11 +10,11 @@ from router import agent, userAuth
 async def lifespan(app: FastAPI):
     await db.connect()
     try:
-        yield db
+        yield
     finally: 
         await db.disconnect()
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 #CORS
 app.add_middleware(
