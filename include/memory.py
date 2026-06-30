@@ -25,7 +25,7 @@ from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient, models as qmodels
 
 from database import db
-from schema import AgentMemoryType, ModelMemoryType  # generated Prisma enums
+from prisma.enums import AgentMemoryType, ModelMemoryType  # generated Prisma enums
 
 openai_client = AsyncOpenAI()
 qdrant = AsyncQdrantClient(url="http://localhost:6333")

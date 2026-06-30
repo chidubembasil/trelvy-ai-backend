@@ -14,6 +14,8 @@ import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from starlette import status
 from openai import AsyncOpenAI
+from dotenv import load_dotenv
+load_dotenv()
 
 from database import db
 from schema import MultiAgentDetails, AgentTaskRequest

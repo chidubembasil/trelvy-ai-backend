@@ -1,16 +1,9 @@
 {
-    "version": 2,
-    "builds": [
-        {
-            "src": "main.py",
-            "use": "@vercel/python"
-        }
-    ],
-    "routes": [
-        {
-            "src": "/(.*)",
-            "dest": "main.py"
-        }
-    ],
-    "buildCommand": "prisma generate"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "uv sync && uv run prisma generate",
+  "functions": {
+    "main.py": {
+      "maxDuration": 60
+    }
+  }
 }
