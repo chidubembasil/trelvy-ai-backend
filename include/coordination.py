@@ -25,7 +25,7 @@ import redis.asyncio as aioredis
 from openai import AsyncOpenAI
 
 from database import db
-import memory as mem
+import include.memory as mem
 
 redis_client = aioredis.from_url("redis://localhost:6379/0", decode_responses=True)
 openai_client = AsyncOpenAI()
