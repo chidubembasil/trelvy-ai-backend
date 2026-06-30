@@ -30,3 +30,9 @@ class MultiAgentDetails(BaseModel):
     version: Optional[str]
     status: str
     codingAgent: Optional[str]
+    swarmAgentId: Optional[str] = None
+
+class AgentTaskRequest(BaseModel):
+    goal: str = Field(min_length=3, max_length=200)
+    description: str
+    priority: Optional[int] = Field(default=5, ge=1, le=10)    

@@ -18,6 +18,24 @@ enum CodingAgent {
   CLAUDE_CODE
   JULES
 }
+enum AgentMemoryType {
+  WORKING        // 🐟 Goldfish
+  EPISODIC       // 🐘 Elephant
+  SEMANTIC       // 🦉 Owl
+  RETRIEVAL      // 🐕 Bloodhound
+  PROCEDURAL     // 🦫 Beaver
+  CACHE          // 🐿️ Squirrel
+  COLLABORATION  // 🐬 Dolphin
+}
+
+enum ModelMemoryType {
+  CONTEXT
+  KNOWLEDGE
+  RETRIEVAL
+  PERSISTENT
+  CACHE
+  CONVERSATION
+}
 model Session {
   id        Int      @id @default(autoincrement())
   token     String   @unique
@@ -36,6 +54,7 @@ model User {
   isVerified  Boolean   @default(false)
   sessions    Session[]
   multiAgents MultiAgent[]
+  sandboxes Sandbox[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 }
@@ -64,6 +83,70 @@ model SubAgent {
 
   parentId    Int
   parent      MultiAgent    @relation(fields: [parentId], references: [id])
+  agentmemory     AgentMemory[]
+  modelMemory  ModelMemory[]
 
   createdAt   DateTime @default(now())
+}
+model AgentMemory {
+  id            Int             @id @default(autoincrement())
+
+  subAgentId    Int
+  subAgent      SubAgent        @relation(fields: [subAgentId], references: [id], onDelete: Cascade)
+
+  type          AgentMemoryType
+
+  title         String?
+  content       Json
+
+  importance    Float @default(0.5)
+  confidence    Float @default(1)
+
+  tags          String[]
+
+  embeddingId   String?
+
+  expiresAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([subAgentId])
+  @@index([type])
+}
+model ModelMemory {
+  id            Int              @id @default(autoincrement())
+
+  subAgentId    Int
+  subAgent      SubAgent         @relation(fields: [subAgentId], references: [id], onDelete: Cascade)
+
+  type          ModelMemoryType
+
+  prompt        Json
+  response      Json?
+
+  tokens        Int?
+
+  summary       String?
+
+  embeddingId   String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([subAgentId])
+  @@index([type])
+}
+model Sandbox {
+  id                Int      @id @default(autoincrement())
+  uniqueId          String   @unique
+  agentId           String
+  swarmAgentId      String?
+  dockerContainerId String
+  template          String
+  repoUrl           String?
+  status            String   @default("running")
+  lastRunAt         Float?
+  userId            Int
+  user              User     @relation(fields: [userId], references: [id])
+  createdAt         DateTime @default(now())
 }
