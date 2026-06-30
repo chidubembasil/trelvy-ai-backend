@@ -4,7 +4,6 @@ import uuid
 
 
 class User(BaseModel):
-    id: int
     name: str = Field(min_length=3, max_length=20)
     email: str = Field(min_length=6, max_length=20, pattern=r"^\S+@\S+\.\S+$")
     password: str = Field(min_length=6, max_length=20)

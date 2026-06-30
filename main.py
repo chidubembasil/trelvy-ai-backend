@@ -7,7 +7,7 @@ from router import agent, userAuth
 
 
 @asynccontextmanager
-async def get_db():
+async def lifespan(app: FastAPI):
     await db.connect()
     try:
         yield db
