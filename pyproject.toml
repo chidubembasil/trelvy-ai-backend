@@ -9,6 +9,7 @@ dependencies = [
     "fastapi-mail>=1.6.5",
     "openai>=2.44.0",
     "passlib[bcrypt]>=1.7.4",
+    "bcrypt==4.0.1",
     "prisma>=0.15.0",
     "python-dotenv>=1.2.2",
     "python-jose>=3.5.0",
