@@ -8,7 +8,7 @@ from database import db
 import os
 
 # ── Config ──────────────────────────────────────────────
-SECRET_KEY = os.getenv("SECRET_KEY", os.getenv("SECRET_KEY"))  # put this in .env
+SECRET_KEY = os.getenv("SECRET_KEY") # put this in .env
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
