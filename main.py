@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from database import db
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from router import agent, userAuth
-
 
 
 @asynccontextmanager
@@ -11,12 +11,12 @@ async def lifespan(app: FastAPI):
     await db.connect()
     try:
         yield
-    finally: 
+    finally:
         await db.disconnect()
 
 app = FastAPI(lifespan=lifespan)
 
-#CORS
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -24,10 +24,33 @@ app.add_middleware(
         "http://localhost:5173",
         "https://yourapp.com",
     ],
-    allow_credentials=True,           # needed for Authorization header
-    allow_methods=["*"],              # GET, POST, PATCH, DELETE etc
-    allow_headers=["*"],              # Authorization, Content-Type etc
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(agent.router)
 app.include_router(userAuth.router)
+
+
+# Bearer token support in Swagger UI
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title="Trelvy API",
+        version="0.1.0",
+        routes=app.routes,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "bearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+    openapi_schema["security"] = [{"bearerAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
