@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from starlette import status
 from database import db
-from schema import User, UserUpdate, LoginDetails
+from schema import UserRegister, UserUpdate, LoginDetails
 from runtime.auth import hash_password, verify_password, create_access_token, get_current_user
 from datetime import datetime, timedelta
 
@@ -12,7 +12,7 @@ router = APIRouter(
 
 # ── Register ──────────────────────────────────────────────
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(details: User):
+async def register(details: UserRegister):
     existing = await db.user.find_unique(where={"email": details.email})
     if existing:
         raise HTTPException(

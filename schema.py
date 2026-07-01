@@ -9,11 +9,6 @@ class UserRegister(BaseModel):
     email: str = Field(min_length=6, max_length=50, pattern=r"^\S+@\S+\.\S+$")
     password: str = Field(min_length=6, max_length=20)
 
-class User(BaseModel):
-    id: int
-    name: str
-    email: str
-
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
