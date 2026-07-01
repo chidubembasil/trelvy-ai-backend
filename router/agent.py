@@ -1,24 +1,23 @@
 """
 Trelvy Multi-Agent Router
 ============================
-Creates and manages autonomous agents. Agent "intelligence" now comes from
-OpenAI (gpt-4.1) instead of Codex. Every agent created here is registered
-with the Coordination Engine and given a memory namespace, so it
-automatically becomes part of the swarm: it can think (Thinking Cap), be
-assigned tasks, request help from other agents, and learn over time.
+Flow:
+  1. User creates a MultiAgent with a name, prompt, and codingAgent type.
+  2. OpenAI generates code files based on the prompt.
+  3. Each generated file is stored as a SubAgent row linked to the MultiAgent.
+  4. Tasks are assigned to the MultiAgent; the swarm coordinates SubAgents.
 """
 
 import json
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Depends
 from starlette import status
 from openai import AsyncOpenAI
-from dotenv import load_dotenv
-load_dotenv()
 
 from database import db
-from schema import MultiAgentDetails, AgentTaskRequest
+from schema import MultiAgentDetails, MultiAgentCreate
 from runtime.auth import get_current_user
 
 import include.memory as mem
@@ -34,34 +33,59 @@ AGENT_MODEL = "gpt-4.1"
 
 
 # ---------------------------------------------------------------------------
-# Agent intelligence: OpenAI replaces the old Codex code-generation call.
-# This is the `executor` plugged into coord.run_agent_cycle for this agent type.
+# Generate code files for an agent using OpenAI
+# Returns a list of {name, filePath, content} dicts
 # ---------------------------------------------------------------------------
 
-async def trelvy_agent_executor(task, reasoning: dict) -> dict:
-    """
-    Executes a task using OpenAI, guided by the Thinking Cap's reasoning.
-    Returns a structured result that the Coordinator/Memory system consumes.
-    """
+async def generate_agent_files(name: str, prompt: str, coding_agent: str) -> list[dict]:
     system_prompt = (
-        "You are an autonomous Trelvy agent. You have already reasoned about "
-        "this task (see the strategy below). Execute it and respond ONLY in "
-        "JSON with keys: success (bool), summary (string), output (string), "
-        "learned_fact (string or null), learned_procedure (object or null - "
-        "{name, steps} if you discovered a reusable workflow)."
+        "You are an expert software architect. Given an agent name, prompt, and type, "
+        "generate the necessary Python code files for that agent. "
+        "Respond ONLY in JSON with this exact structure: "
+        '{"files": [{"name": "filename.py", "path": "agents/<agent_name>/<filename>.py", "content": "...full python code..."}]}. '
+        "Generate between 1 and 5 files depending on complexity. "
+        "Each file should be a complete, standalone Python module."
     )
     user_prompt = json.dumps({
-        "goal": task.goal,
-        "description": task.description,
-        "execution_strategy": reasoning.get("execution_strategy"),
-        "required_tools": reasoning.get("required_tools", []),
+        "agent_name":   name,
+        "prompt":       prompt,
+        "coding_agent": coding_agent,
     })
 
     response = await openai_client.chat.completions.create(
         model=AGENT_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
+        response_format={"type": "json_object"},
+    )
+    result = json.loads(response.choices[0].message.content)
+    return result.get("files", [])
+
+
+# ---------------------------------------------------------------------------
+# Task executor - used by the coordination lifecycle
+# ---------------------------------------------------------------------------
+
+async def trelvy_agent_executor(task, reasoning: dict) -> dict:
+    system_prompt = (
+        "You are an autonomous Trelvy agent. Execute the task below and respond "
+        "ONLY in JSON with keys: success (bool), summary (string), output (string), "
+        "learned_fact (string or null), learned_procedure (object or null)."
+    )
+    user_prompt = json.dumps({
+        "goal":               task.goal,
+        "description":        task.description,
+        "execution_strategy": reasoning.get("execution_strategy"),
+        "required_tools":     reasoning.get("required_tools", []),
+    })
+
+    response = await openai_client.chat.completions.create(
+        model=AGENT_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
         ],
         response_format={"type": "json_object"},
     )
@@ -69,24 +93,26 @@ async def trelvy_agent_executor(task, reasoning: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Create a new multi-agent for the logged in user
+# Create a new MultiAgent + generate its SubAgent files via OpenAI
 # ---------------------------------------------------------------------------
 
 @router.post("/", response_model=MultiAgentDetails, status_code=status.HTTP_201_CREATED)
 async def create_multi_agent(
-    agent_details: MultiAgentDetails,
+    agent_details: MultiAgentCreate,
     current_user=Depends(get_current_user),
 ):
-    new_agent = await db.multiAgent.create(
+    # 1. Create the MultiAgent record first
+    agent_unique_id = str(uuid.uuid4())
+    new_agent = await db.multiagent.create(
         data={
-            "uniqueId": str(uuid.uuid4()),
-            "name": agent_details.name,
-            "prompt": agent_details.prompt,
-            "filePath": agent_details.filePath,
-            "version": agent_details.version,
-            "status": agent_details.status,
-            "codingAgent": agent_details.codingAgent,
-            "userId": current_user.id,
+            "uniqueId":    agent_unique_id,
+            "name":        agent_details.name,
+            "prompt":      agent_details.prompt,
+            "filePath":    f"agents/{agent_details.name.lower().replace(' ', '_')}/",
+            "version":     agent_details.version or "1.0.0",
+            "status":      agent_details.status or "active",
+            "codingAgent": agent_details.codingAgent or "CODEX",
+            "userId":      current_user.id,
         }
     )
 
@@ -96,83 +122,63 @@ async def create_multi_agent(
             detail="Failed to create multi-agent",
         )
 
-    # Register the agent with the Coordination Engine -> joins the swarm
-    swarm_agent = await coord.register_agent(
+    # 2. Ask OpenAI to generate the code files for this agent
+    generated_files = await generate_agent_files(
+        name=agent_details.name,
+        prompt=agent_details.prompt,
+        coding_agent=agent_details.codingAgent or "CODEX",
+    )
+
+    # 3. Each generated file becomes a SubAgent row linked to this MultiAgent
+    for file in generated_files:
+        sub_agent = await db.subagent.create(
+            data={
+                "uniqueId": str(uuid.uuid4()),
+                "name":     file.get("name", "unknown.py"),
+                "filePath": file.get("path", f"agents/{agent_details.name}/unknown.py"),
+                "parentId": new_agent.id,
+            }
+        )
+
+        # 4. Seed the SubAgent's semantic memory with its generated code
+        await mem.owl("write", sub_agent.uniqueId, fact={
+            "topic":      "generated_code",
+            "fact":       file.get("content", ""),
+            "confidence": 1.0,
+            "source":     "openai_generation",
+        })
+
+    # 5. Register the MultiAgent with the Coordination Engine
+    await coord.register_agent(
         name=agent_details.name,
         role=agent_details.codingAgent or "general",
         model=AGENT_MODEL,
     )
 
-    # Link the swarm agent id back onto the multi-agent record
-    new_agent = await db.multiAgent.update(
-        where={"uniqueId": new_agent.uniqueId},
-        data={"swarmAgentId": swarm_agent.uniqueId},
+    # Return the agent with its sub-agents included
+    return await db.multiagent.find_unique(
+        where={"uniqueId": agent_unique_id},
+        include={"subAgents": True},
     )
 
-    # Seed semantic memory with the agent's founding prompt/instructions
-    await mem.owl("write", swarm_agent.uniqueId, fact={
-        "topic": "identity",
-        "fact": agent_details.prompt,
-        "confidence": 1.0,
-        "source": "agent_creation",
-    })
-
-    return new_agent
 
 
 # ---------------------------------------------------------------------------
-# Assign a task to an agent - runs the full coordination lifecycle
-# ---------------------------------------------------------------------------
-
-@router.post("/{unique_id}/tasks", status_code=status.HTTP_200_OK)
-async def assign_task(
-    unique_id: str,
-    task_request: AgentTaskRequest,
-    current_user=Depends(get_current_user),
-):
-    agent_record = await db.multiAgent.find_first(
-        where={"uniqueId": unique_id, "userId": current_user.id}
-    )
-    if not agent_record:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    if not agent_record.swarmAgentId:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Agent is not registered with the Coordination Engine",
-        )
-
-    task = await coord.create_task(
-        goal=task_request.goal,
-        description=task_request.description,
-        priority=task_request.priority or 5,
-        owner=agent_record.swarmAgentId,
-    )
-
-    result = await coord.run_agent_cycle(
-        agent_id=agent_record.swarmAgentId,
-        task_id=task.uniqueId,
-        executor=trelvy_agent_executor,
-    )
-
-    return {"task_id": task.uniqueId, **result}
-
-
-# ---------------------------------------------------------------------------
-# Get all multi-agents for the logged in user only
+# Get all agents for the logged in user
 # ---------------------------------------------------------------------------
 
 @router.get("/", response_model=list[MultiAgentDetails], status_code=status.HTTP_200_OK)
 async def get_all_multi_agents(
     current_user=Depends(get_current_user),
 ):
-    agents = await db.multiAgent.find_many(
-        where={"userId": current_user.id}
+    return await db.multiagent.find_many(
+        where={"userId": current_user.id},
+        include={"subAgents": True},
     )
-    return agents
 
 
 # ---------------------------------------------------------------------------
-# Get a single multi-agent by uniqueId (only if it belongs to the user)
+# Get a single agent with its sub-agents (files)
 # ---------------------------------------------------------------------------
 
 @router.get("/{unique_id}", response_model=MultiAgentDetails, status_code=status.HTTP_200_OK)
@@ -180,11 +186,9 @@ async def get_multi_agent(
     unique_id: str,
     current_user=Depends(get_current_user),
 ):
-    agent = await db.multiAgent.find_first(
-        where={
-            "uniqueId": unique_id,
-            "userId": current_user.id,
-        }
+    agent = await db.multiagent.find_first(
+        where={"uniqueId": unique_id, "userId": current_user.id},
+        include={"subAgents": True},
     )
     if not agent:
         raise HTTPException(
@@ -195,7 +199,7 @@ async def get_multi_agent(
 
 
 # ---------------------------------------------------------------------------
-# Get an agent's full swarm state - memory + coordination snapshot
+# Get agent's swarm state - memory + sub-agents + coordination snapshot
 # ---------------------------------------------------------------------------
 
 @router.get("/{unique_id}/state", status_code=status.HTTP_200_OK)
@@ -203,28 +207,31 @@ async def get_agent_swarm_state(
     unique_id: str,
     current_user=Depends(get_current_user),
 ):
-    agent_record = await db.multiAgent.find_first(
-        where={"uniqueId": unique_id, "userId": current_user.id}
+    agent_record = await db.multiagent.find_first(
+        where={"uniqueId": unique_id, "userId": current_user.id},
+        include={"subAgents": True},
     )
-    if not agent_record or not agent_record.swarmAgentId:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not agent_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent not found"
+        )
 
-    swarm_id = agent_record.swarmAgentId
-    agent_state = await coord.get_agent(swarm_id)
-    working_memory = await mem.goldfish("read", swarm_id)
-    episodic = await mem.elephant("read", swarm_id, limit=10)
-    facts = await mem.owl("read", swarm_id, limit=10)
+    working_memory = await mem.goldfish("read", agent_record.uniqueId)
+    episodic       = await mem.elephant("read", agent_record.uniqueId, limit=10)
+    facts          = await mem.owl("read", agent_record.uniqueId, limit=10)
 
     return {
-        "agent_state": agent_state,
-        "working_memory": working_memory,
+        "agent":              agent_record,
+        "sub_agents":         agent_record.subAgents,
+        "working_memory":     working_memory,
         "recent_experiences": episodic,
-        "known_facts": facts,
+        "known_facts":        facts,
     }
 
 
 # ---------------------------------------------------------------------------
-# Delete a multi-agent (only if it belongs to the user)
+# Delete an agent and all its sub-agents (cascade handled by Prisma)
 # ---------------------------------------------------------------------------
 
 @router.delete("/{unique_id}", status_code=status.HTTP_200_OK)
@@ -232,11 +239,8 @@ async def delete_multi_agent(
     unique_id: str,
     current_user=Depends(get_current_user),
 ):
-    agent = await db.multiAgent.find_first(
-        where={
-            "uniqueId": unique_id,
-            "userId": current_user.id,
-        }
+    agent = await db.multiagent.find_first(
+        where={"uniqueId": unique_id, "userId": current_user.id}
     )
     if not agent:
         raise HTTPException(
@@ -244,8 +248,6 @@ async def delete_multi_agent(
             detail="Agent not found or doesn't belong to you",
         )
 
-    if agent.swarmAgentId:
-        await coord.deregister_agent(agent.swarmAgentId)
-
-    await db.multiAgent.delete(where={"uniqueId": unique_id})
-    return {"detail": "Agent deleted successfully"}
+    await coord.deregister_agent(agent.uniqueId)
+    await db.multiagent.delete(where={"uniqueId": unique_id})
+    return {"detail": "Agent and all its files deleted successfully"}

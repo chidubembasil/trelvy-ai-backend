@@ -1,12 +1,18 @@
 from pydantic import BaseModel, Field
 from typing import Optional
-import uuid
 
+
+# ── User Models ───────────────────────────────────────────
+
+class UserRegister(BaseModel):
+    name: str = Field(min_length=3, max_length=20)
+    email: str = Field(min_length=6, max_length=50, pattern=r"^\S+@\S+\.\S+$")
+    password: str = Field(min_length=6, max_length=20)
 
 class User(BaseModel):
-    name: str = Field(min_length=3, max_length=20)
-    email: str = Field(min_length=6, max_length=20, pattern=r"^\S+@\S+\.\S+$")
-    password: str = Field(min_length=6, max_length=20)
+    id: int
+    name: str
+    email: str
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -17,21 +23,28 @@ class LoginDetails(BaseModel):
     email: str
     password: str
 
-class VerifyOTPDetails(BaseModel):
-    email: str
-    otp: str
+
+# ── Multi-Agent Models ────────────────────────────────────
+
+class MultiAgentCreate(BaseModel):
+    """
+    What the user sends to create an agent.
+    Everything else (files, tasks, sandbox, memory, coordination)
+    is handled entirely by the backend.
+    """
+    name: str = Field(min_length=3, max_length=50)
+    prompt: str
+    version: Optional[str] = "1.0.0"
+    status: Optional[str] = "active"
+    codingAgent: Optional[str] = "CODEX"
 
 class MultiAgentDetails(BaseModel):
+    """What the backend returns after creating/fetching an agent."""
     id: int
-    uniqueId: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = Field(min_length=3, max_length=20)
+    uniqueId: str
+    name: str
     prompt: str
+    filePath: str
     version: Optional[str]
     status: str
     codingAgent: Optional[str]
-    swarmAgentId: Optional[str] = None
-
-class AgentTaskRequest(BaseModel):
-    goal: str = Field(min_length=3, max_length=200)
-    description: str
-    priority: Optional[int] = Field(default=5, ge=1, le=10)    
