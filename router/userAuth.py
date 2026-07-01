@@ -1,9 +1,8 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from starlette import status
 from database import db
-from schema import User, UserUpdate, LoginDetails, VerifyOTPDetails
+from schema import User, UserUpdate, LoginDetails
 from runtime.auth import hash_password, verify_password, create_access_token, get_current_user
-from runtime.email import generate_otp, send_otp_email
 from datetime import datetime, timedelta
 
 router = APIRouter(
@@ -20,18 +19,34 @@ async def register(details: User):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    await db.user.create(
+    new_user = await db.user.create(
         data={
-            "name":     details.name,
-            "email":    details.email,
-            "password": hash_password(details.password),
+            "name":       details.name,
+            "email":      details.email,
+            "password":   hash_password(details.password),
+            "isVerified": True,
         }
     )
-    return {"detail": "User created successfully"}
 
-# ── Login → sends OTP in background ──────────────────────
+    token = create_access_token(new_user.id)
+    await db.session.create(
+        data={
+            "token":     token,
+            "userId":    new_user.id,
+            "expiresAt": datetime.utcnow() + timedelta(hours=24),
+        }
+    )
+
+    return {
+        "access_token": token,
+        "token_type":   "bearer",
+        "detail":       "Registered successfully"
+    }
+
+
+# ── Login ─────────────────────────────────────────────────
 @router.post("/login", status_code=status.HTTP_200_OK)
-async def login(details: LoginDetails, background_tasks: BackgroundTasks):
+async def login(details: LoginDetails):
     user = await db.user.find_unique(where={"email": details.email})
     if not user or not verify_password(details.password, user.password):
         raise HTTPException(
@@ -39,57 +54,7 @@ async def login(details: LoginDetails, background_tasks: BackgroundTasks):
             detail="Invalid email or password"
         )
 
-    otp = generate_otp()
-    otp_expiry = datetime.utcnow() + timedelta(minutes=10)
-
-    await db.user.update(
-        where={"id": user.id},
-        data={
-            "otp":       otp,
-            "otpExpiry": otp_expiry,
-        }
-    )
-
-    background_tasks.add_task(send_otp_email, user.email, otp, user.name)
-
-    return {"detail": "OTP sent to your email"}
-
-# ── Verify OTP → returns token + creates session ──────────
-@router.post("/verify-otp", status_code=status.HTTP_200_OK)
-async def verify_otp(details: VerifyOTPDetails):
-    user = await db.user.find_unique(where={"email": details.email})
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    if user.otp != details.otp:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP"
-        )
-
-    if datetime.utcnow() > user.otpExpiry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OTP has expired — please login again"
-        )
-
-    # Clear OTP
-    await db.user.update(
-        where={"id": user.id},
-        data={
-            "otp":        None,
-            "otpExpiry":  None,
-            "isVerified": True,
-        }
-    )
-
-    # Create token
     token = create_access_token(user.id)
-
-    # Create session in database
     await db.session.create(
         data={
             "token":     token,
@@ -104,6 +69,7 @@ async def verify_otp(details: VerifyOTPDetails):
         "detail":       "Login successful"
     }
 
+
 # ── Get current user ──────────────────────────────────────
 @router.get("/me", status_code=status.HTTP_200_OK)
 async def get_me(current_user=Depends(get_current_user)):
@@ -113,13 +79,14 @@ async def get_me(current_user=Depends(get_current_user)):
         "email": current_user.email,
     }
 
+
 # ── Get all active sessions for current user ──────────────
 @router.get("/sessions", status_code=status.HTTP_200_OK)
 async def get_sessions(current_user=Depends(get_current_user)):
     sessions = await db.session.find_many(
         where={
             "userId":    current_user.id,
-            "expiresAt": {"gt": datetime.utcnow()}  # only active sessions
+            "expiresAt": {"gt": datetime.utcnow()}
         }
     )
     return {
@@ -134,17 +101,15 @@ async def get_sessions(current_user=Depends(get_current_user)):
         ]
     }
 
+
 # ── Logout → deletes current session ─────────────────────
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(current_user=Depends(get_current_user), token: str = Depends(get_current_user)):
-    # Delete this specific session from database
+async def logout(current_user=Depends(get_current_user)):
     await db.session.delete_many(
-        where={
-            "userId": current_user.id,
-            "token":  token if isinstance(token, str) else token.token
-        }
+        where={"userId": current_user.id}
     )
     return {"detail": "Logged out successfully"}
+
 
 # ── Logout all → deletes ALL sessions for user ────────────
 @router.post("/logout-all", status_code=status.HTTP_200_OK)
@@ -152,7 +117,8 @@ async def logout_all(current_user=Depends(get_current_user)):
     deleted = await db.session.delete_many(
         where={"userId": current_user.id}
     )
-    return {"detail": f"Logged out of all {deleted} sessions"}
+    return {"detail": f"Logged out of all sessions"}
+
 
 # ── Update user ───────────────────────────────────────────
 @router.patch("/update", status_code=status.HTTP_200_OK)
@@ -193,19 +159,11 @@ async def update_user(
         }
     }
 
+
 # ── Delete user ───────────────────────────────────────────
 @router.delete("/delete", status_code=status.HTTP_200_OK)
 async def delete_user(current_user=Depends(get_current_user)):
-    # Delete sessions first
-    await db.session.delete_many(
-        where={"userId": current_user.id}
-    )
-    # Delete all agents
-    await db.multiAgent.delete_many(
-        where={"userId": current_user.id}
-    )
-    # Delete user
-    await db.user.delete(
-        where={"id": current_user.id}
-    )
+    await db.session.delete_many(where={"userId": current_user.id})
+    await db.multiAgent.delete_many(where={"userId": current_user.id})
+    await db.user.delete(where={"id": current_user.id})
     return {"detail": "User and all their data deleted successfully"}
