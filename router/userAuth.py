@@ -1,9 +1,7 @@
-import os
-
 from fastapi import APIRouter, HTTPException, Depends
 from starlette import status
 from database import db
-from schema import UserRegister, UserUpdate, LoginDetails
+from schema import User, UserUpdate, LoginDetails
 from runtime.auth import hash_password, verify_password, create_access_token, get_current_user
 from datetime import datetime, timedelta
 
@@ -14,7 +12,7 @@ router = APIRouter(
 
 # ── Register ──────────────────────────────────────────────
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(details: UserRegister):
+async def register(details: User):
     existing = await db.user.find_unique(where={"email": details.email})
     if existing:
         raise HTTPException(
@@ -169,12 +167,3 @@ async def delete_user(current_user=Depends(get_current_user)):
     await db.multiAgent.delete_many(where={"userId": current_user.id})
     await db.user.delete(where={"id": current_user.id})
     return {"detail": "User and all their data deleted successfully"}
-
-
-@router.get("/debug-env", status_code=200)
-async def debug_env():
-<<<<<<< HEAD
-    return {"secret_key_set": bool(os.getenv("SECRET_KEY"))}
-=======
-    return {"secret_key_set": bool(os.getenv("SECRET_KEY"))}
->>>>>>> 52719a6247e025699b43977fbc89fe5c490364ff
