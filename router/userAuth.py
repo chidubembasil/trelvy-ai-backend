@@ -167,3 +167,8 @@ async def delete_user(current_user=Depends(get_current_user)):
     await db.multiAgent.delete_many(where={"userId": current_user.id})
     await db.user.delete(where={"id": current_user.id})
     return {"detail": "User and all their data deleted successfully"}
+
+
+@router.get("/debug-env", status_code=200)
+async def debug_env():
+    return {"secret_key_set": bool(os.getenv("SECRET_KEY"))}
