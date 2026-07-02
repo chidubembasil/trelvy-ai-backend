@@ -96,7 +96,7 @@ async def trelvy_agent_executor(task, reasoning: dict) -> dict:
 # Create a new MultiAgent + generate its SubAgent files via OpenAI
 # ---------------------------------------------------------------------------
 
-@router.post("/", response_model=MultiAgentDetails, status_code=status.HTTP_201_CREATED)
+@router.post("/create-agent", response_model=MultiAgentDetails, status_code=status.HTTP_201_CREATED)
 async def create_multi_agent(
     agent_details: MultiAgentCreate,
     current_user=Depends(get_current_user),
@@ -167,7 +167,7 @@ async def create_multi_agent(
 # Get all agents for the logged in user
 # ---------------------------------------------------------------------------
 
-@router.get("/", response_model=list[MultiAgentDetails], status_code=status.HTTP_200_OK)
+@router.get("/get-agent", response_model=list[MultiAgentDetails], status_code=status.HTTP_200_OK)
 async def get_all_multi_agents(
     current_user=Depends(get_current_user),
 ):
