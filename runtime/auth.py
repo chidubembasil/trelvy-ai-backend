@@ -8,7 +8,7 @@ from database import db
 import os
 
 # ── Config ──────────────────────────────────────────────
-SECRET_KEY = os.getenv("SECRET_KEY") # put this in .env
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
@@ -42,14 +42,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-
-    # Check session exists and is not expired
-    session = await db.session.find_unique(where={"token": token})
-    if not session or session.expiresAt < datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired or logged out — please login again"
-        )
 
     user = await db.user.find_unique(where={"id": int(user_id)})
     if user is None:
